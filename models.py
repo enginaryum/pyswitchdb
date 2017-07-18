@@ -1,8 +1,8 @@
 from switch_client import *
 
 
-class MyModel(Model):
-    age = Field.int
+# class MyModel(Model):
+#     age = Field.int
 
 
 class RDB(Model):
