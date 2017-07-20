@@ -1,326 +1,256 @@
-import requests
-import hashlib
-import json
-import time
 from credentials import api_key, api_secret, server
+import requests, json, functools
+from _base import base_url, query_defaults, default_keys, _get_access_token
+from validators import ValidationError
 
-base_url = 'https://{}.switchapi.com/{}'
-count = 100
-page = 0
-order = {"type": "DESC", "by": "id"}
-where = []
-query_defaults = {'count': 100, "page": 0, "order": {"type": "DESC", "by": "id"}, "where": []}
-default_keys = ['base_url', 'api_key', 'api_secret', 'server', 'count', 'page', 'order', 'where', 'query_defaults']
-access_token = None
+EMPTY_VALUES = [None, '', [], (), {}]
 
 
-class Query(object):
-    count = 100
-    page = 0
-    order = {"type": "DESC", "by": "id"}
-    where = []
-    query_defaults = {'count': 100, "page": 0, "order": {"type": "DESC", "by": "id"}, "where": []}
-
-    def __init__(self, count=None, page=None, order=None, where=None):
-        self.count = count
-        self.page = page
-        self.order = order
-        self.where = where
+class Ordering(object):
+	def __init__(self, cmp=None):
+		self._data = []
+		self._key = functools.cmp_to_key(cmp)
+	
+	def add(self, what): self._data.append(what)
+	
+	def value(self): return self._data
+	
+	def sort(self): self._data.sort(key=self._key)
 
 
 class SwitchClient(object):
-    @classmethod
-    def sort(self, _by):
-        q = query_defaults
-        if _by.startswith('-'):
-            q['order']['by'] = _by
-            q['order']['type'] = "DESC"
-        else:
-            q['order']['type'] = "ASC"
-            q['order']['by'] = _by[1:]
-        self._query = q
-        return self
-
-    @classmethod
-    def get_list_name(cls):
-        if isinstance(cls, type):
-            try:
-                return cls.__name__
-            except:
-                return cls().__class__.__name__
-        return cls.__class__.__name__
-
-    @staticmethod
-    def get_access_token():
-        try:
-            with open('sw_db_credentials.json') as data_file:
-                data = json.load(data_file)
-                if long(data["time_stamp"]) - 86400 <= long((time.time() + 0.5) * 1000):
-                    access_token = _get_access_token(api_secret, api_key, server)["access_token"]
-                    data["access_token"] = access_token
-                    data["time_stamp"] = _default_expire_time()
-                    data_file.seek(0)
-                    json.dump(data, data_file)
-                    data_file.truncate()
-                return data["access_token"]
-        except IOError:
-            val = _get_access_token(api_secret, api_key, server)
-            access_token = val["access_token"]
-            expire_time = val["expire_time"]
-            _credentials_save(access_token, expire_time)
-            return access_token
-
-    def __init__(self, access_token=None):
-        self.access_token = access_token
-        if access_token is None and not self.access_token:
-            try:
-                with open('sw_db_credentials.json') as data_file:
-                    data = json.load(data_file)
-                    if long(data["time_stamp"]) - 86400 <= long((time.time() + 0.5) * 1000):
-                        access_token = _get_access_token(api_secret, api_key, server)["access_token"]
-                        data["access_token"] = access_token
-                        data["time_stamp"] = _default_expire_time()
-                        data_file.seek(0)
-                        json.dump(data, data_file)
-                        data_file.truncate()
-                    self.access_token = data["access_token"]
-            except IOError:
-                val = _get_access_token(api_secret, api_key, server)
-                access_token = val["access_token"]
-                expire_time = val["expire_time"]
-                self.access_token = access_token
-                _credentials_save(access_token, expire_time)
-
-    @classmethod
-    def lists(self):
-        headers = {
-            "APIKey": api_key,
-            "AccessToken": _get_access_token(api_secret, api_key, server)["access_token"],
-            "Content-type": "application/json"
-        }
-        try:
-            return json.loads(requests.get(base_url.format(server, "Lists"), headers=headers).text)['Response']
-        except Exception as e:
-            print e
-
-    def clear_query(self):
-        if self._query:
-            self._query = {}
-
-    @classmethod
-    def find(self, **kwargs):
-        headers = {
-            "APIKey": api_key,
-            "AccessToken": self.get_access_token(),
-            "Content-type": "application/json",
-            "List": self.get_list_name()
-        }
-        for k, v in query_defaults.iteritems():
-            try:
-                if not self._query[k]:
-                    self._query[k] = v
-            except KeyError:
-                self._query[k] = v
-        self._query['list'] = headers['List']
-        _where = []
-        for k, v in kwargs.iteritems():
-            _where.append({"type": "equal", "column": k, "value": v})
-        self._query['where'] = _where
-        try:
-            response = requests.post(base_url.format(server, "List"), headers=headers, json=self._query)
-            return map(lambda x: self(x), json.loads(response.text))
-        except Exception as e:
-            print e
-
-    @classmethod
-    def findOne(self, **kwargs):
-        headers = {
-            "APIKey": api_key,
-            "AccessToken": self.get_access_token(),
-            "Content-type": "application/json",
-            "List": self.get_list_name()
-        }
-        for k, v in query_defaults.iteritems():
-            try:
-                if not self._query[k]:
-                    self._query[k] = v
-            except KeyError:
-                self._query[k] = v
-        self._query['list'] = headers['List']
-        self._query['count'] = 1
-        _where = []
-        for k, v in kwargs.iteritems():
-            _where.append({"type": "equal", "column": k, "value": v})
-        self._query['where'] = _where
-        try:
-            response = requests.post(base_url.format(server, "List"), headers=headers, json=self._query)
-            return map(lambda x: self(x), json.loads(response.text))
-        except Exception as e:
-            print e
-
-    @classmethod
-    def add(cls, json_data=None, **kwargs):
-        _json = {}
-        if json_data:
-            _json = json_data
-        else:
-            for k, v in kwargs.iteritems():
-                _json[k] = v
-        headers = {
-            "APIKey": api_key,
-            "AccessToken": cls.get_access_token(),
-            "List": cls.get_list_name(),
-        }
-        try:
-            resp = json.loads(requests.post(base_url.format(server, "Add"), headers=headers, json=_json).text)
-            if resp['Response'] == 'Success':
-                _json['_id'] = resp['ListItemId']
-                return _json
-            else:
-                return False
-        except Exception as e:
-            print e
-
-    def _set(self, list_item_id, json_data):
-        headers = {
-            "APIKey": api_key,
-            "AccessToken": self.get_access_token(),
-            "List": self.get_list_name(),
-            "ListItemId": list_item_id,
-            "Content-type": "application/json"
-        }
-        try:
-            return json.loads(requests.post(base_url.format(server, "Set"), headers=headers,
-                                            json=json_data).text)
-        except Exception as e:
-            print e
-
-    def delete(self, list_item_id):
-        headers = {
-            "APIKey": api_key,
-            "AccessToken": self.get_access_token(),
-            "List": self.get_list_name(),
-            "ListItemId": list_item_id,
-            "Content-type": "application/json"
-        }
-        try:
-            data = requests.delete(base_url.format(server, "Set"), headers=headers)
-            return json.loads(data.text)
-        except Exception as e:
-            print e
-
-    class Meta:
-        abstract = True
+	_query = {}
+	access_token = None
+	
+	def __init__(self, access_token=None):
+		self.access_token = access_token
+		if access_token is None and not self.access_token:
+			self.__class__.get_access_token()
+	
+	@classmethod
+	def order_by(cls, q, t): return Ordering(t).add(q).sort()
+	
+	@classmethod
+	def sort(cls, _by):
+		cls.check_query()
+		if _by.startswith('-'):
+			cls._query['order']['by'] = _by[1:]
+			cls._query['order']['type'] = "DESC"
+		else:
+			cls._query['order']['type'] = "ASC"
+			cls._query['order']['by'] = _by
+		return cls
+	
+	@classmethod
+	def count(cls, count):
+		cls.check_query()
+		cls._query['count'] = count
+		return cls
+	
+	@classmethod
+	def page(cls, page):
+		cls.check_query()
+		cls._query['page'] = page
+		return cls
+	
+	@classmethod
+	def get_list_name(cls):
+		return cls.__name__
+	
+	@classmethod
+	def get_access_token(cls):
+		if not cls.access_token:
+			cls.access_token = _get_access_token(api_secret, api_key, server)["access_token"]
+		return cls.access_token
+	
+	@classmethod
+	def headers(cls):
+		return {"APIKey": api_key, "AccessToken": cls.get_access_token(), "Content-type": "application/json"}
+	
+	@classmethod
+	def listHeaders(cls):
+		return {"APIKey": api_key, "AccessToken": cls.get_access_token(), "Content-type": "application/json", "List": cls.get_list_name()}
+	
+	@classmethod
+	def lists(cls):
+		cls.fetchRequest('Lists')
+		headers = cls.headers()
+		try:
+			return json.loads(requests.get(base_url.format(server, "Lists"), headers=headers).text)['Response']
+		except Exception as e:
+			print e
+	
+	@classmethod
+	def check_query(cls):
+		if cls._query == {}: cls._query = query_defaults
+	
+	@classmethod
+	def clear_query(cls): cls._query = {}
+	
+	@classmethod
+	def find(cls, filter=None, **kwargs):
+		headers = cls.listHeaders()
+		cls.check_query()
+		cls._query['list'] = headers['List']
+		
+		if kwargs: map(lambda (x, y): cls._query['where'].append({"type": "equal", "column": x, "value": y}), [(k, v) for k, v in kwargs.iteritems()])
+		if filter: map(lambda (x, y): cls._query['where'].append({"type": "equal", "column": x, "value": y}), [(k, v) for k, v in filter.iteritems()])
+		try:
+			response = requests.post(base_url.format(server, "List"), headers=headers, json=cls._query)
+			if response.ok:
+				cls.clear_query()
+				result = []
+				for t in json.loads(response.text):
+					newObj = cls()
+					for key in t.iterkeys():
+						if key not in default_keys:
+							newObj[key] = t[key]
+					result.append(newObj)
+				return result
+		except Exception as e:
+			print e
+	
+	@classmethod
+	def findOne(cls, **kwargs):
+		cls.check_query()
+		cls._query['count'] = 1
+		return cls.find(**kwargs)
+	
+	@classmethod
+	def validateInstance(cls, instance):
+		for key in instance.keys():
+			try:
+				for validator in getattr(cls, key).validators:
+					if not validator.validate(instance[key]):
+						raise ValidationError(validator, key)
+			except KeyError:
+				pass
+		return True
+	
+	@classmethod
+	def add(cls, json_data=None, **kwargs):
+		_json = {}
+		if json_data:
+			_json = json_data
+		if kwargs:
+			_json.update(**kwargs)
+		cls.validateInstance(cls(_json))
+		try:
+			resp = cls.fetchRequest("Add", json_data=_json, listRequest=True)
+			if resp['Response'] == 'Success':
+				_json['_id'] = resp['ListItemId']
+				return _json
+			else:
+				return False
+		except Exception as e:
+			print e
+	
+	def _set(self, list_item_id, json_data):
+		headers = self.__class__.listHeaders()
+		headers['ListItemId'] = list_item_id
+		try:
+			return self.__class__.fetchRequest("Set", headers=headers, listRequest=True, json_data=json_data)
+		except Exception as e:
+			print e
+	
+	def delete(self, list_item_id):
+		headers = self.__class__.listHeaders()
+		headers['ListItemId'] = list_item_id
+		try:
+			return json.loads(requests.delete(base_url.format(server, "Set"), headers=headers).text)
+		except Exception as e:
+			print e
+	
+	@classmethod
+	def fetchRequest(cls, method, json_data=None, listRequest=False, headers=None):
+		if headers: pass
+		elif listRequest:
+			headers = cls.listHeaders()
+		else:
+			headers = cls.headers()
+		try:
+			if json_data:
+				response = requests.post(base_url.format(server, method), headers=headers, json=json_data)
+			else:
+				response = requests.post(base_url.format(server, method), headers=headers)
+			if response.ok:
+				return json.loads(response.text)
+		except Exception as e:
+			return e
+	
+	
+	class Meta: abstract = True
 
 
 class Model(dict, SwitchClient):
-    """
-    Example:
-    m = Map({'first_name': 'Eduardo'}, last_name='Pool', age=24, sports=['Soccer'])
-    """
-
-    def __init__(self, *args, **kwargs):
-        super(Model, self).__init__(*args, **kwargs)
-        for arg in args:
-            if isinstance(arg, dict):
-                for k, v in arg.iteritems():
-                    self[k] = v
-
-        if kwargs:
-            for k, v in kwargs.iteritems():
-                self[k] = v
-
-    def __getattr__(self, attr):
-        return self.get(attr)
-
-    def __setattr__(self, key, value):
-        self.__setitem__(key, value)
-
-    def __setitem__(self, key, value):
-        super(Model, self).__setitem__(key, value)
-        self.__dict__.update({key: value})
-
-    def __delattr__(self, item):
-        self.__delitem__(item)
-
-    def __delitem__(self, key):
-        super(Model, self).__delitem__(key)
-        del self.__dict__[key]
-
-    def save(self, **kwargs):
-        if kwargs:
-            if isinstance(kwargs, dict):
-                for k, v in kwargs.iteritems():
-                    self[k] = v
-        to_update = {}
-        for k, v in self.iteritems():
-            if k not in ['_id', 'access_token']:
-                if getattr(self, k) and k not in default_keys:
-                    to_update[k] = getattr(self, k)
-                    self.__setitem__(k, getattr(self, k))
-                else:
-                    to_update[k] = v
-        try:
-            if self['_id']:
-                return self._set(self._id, to_update)
-        except KeyError:
-            created = self.add(to_update)
-            if created:
-                self['_id'] = created['_id']
-                return self
-            else:
-                return False
-
-    @classmethod
-    def create(self, json_data=None, **kwargs):
-        if json_data:
-            created = self.add(json_data=json_data)
-            if created:
-                self['_id'] = created
-                return self
-            else:
-                return False
-        else:
-            created = self.add(**kwargs)
-            if created:
-                return self(created)
-            else:
-                return False
-    class Meta:
-        abstract = False
-        switchdb_model = True
-
-
-def _get_access_token(api_secret, api_key, server):
-    expire_time = _default_expire_time()
-    m = hashlib.md5(api_secret + expire_time)
-    headers = {
-        "APIKey": api_key,
-        "Signature": m.hexdigest(),
-        "Expire": expire_time
-    }
-
-    r = requests.get("https://{}.switchapi.com/Token".format(server), headers=headers)
-
-    try:
-        access_token = json.loads(r.text)["AccessToken"]
-        return {"access_token": access_token, "expire_time": expire_time}
-    except Exception as e:
-        print e
-
-
-def _credentials_save(access_token, time_stamp):
-    try:
-        f = open('sw_db_credentials.json', 'w')
-        f.write(json.dumps({'access_token': "{}".format(access_token), 'time_stamp': "{}".format(time_stamp)},
-                           ensure_ascii=False))
-        f.close()
-    except Exception as e:
-        print e
-        return False
-    return True
-
-
-# default 30 days expire period(unix timestamp)
-def _default_expire_time():
-    return str(long((time.time() + 0.5) * 1000) + (30 * 86400))
+	def __init__(self, *args, **kwargs):
+		super(Model, self).__init__(*args, **kwargs)
+		for arg in args:
+			if isinstance(arg, dict):
+				for k,v in arg.iteritems():
+					self.__setitem__(k,v)
+		# _args = [arg.iteritems() for arg in args if isinstance(arg, dict)]
+		# map(lambda (x, y): self.__setitem__(x, y), [(k, v) for k, v in _args])
+		if kwargs:
+			map(lambda (x, y): self.__setitem__(x, y), [(k, v) for k, v in kwargs.iteritems()])
+	
+	@property
+	def pk(self):
+		return self._id
+	
+	@property
+	def id(self): return self._id
+	
+	def __getattr__(self, attr): return self.get(attr)
+	
+	def __setattr__(self, key, value): self.__setitem__(key, value)
+	
+	def __setitem__(self, key, value):
+		super(Model, self).__setitem__(key, value)
+		self.__dict__.update({key: value})
+	
+	def __delattr__(self, item): self.__delitem__(item)
+	
+	def __delitem__(self, key):
+		super(Model, self).__delitem__(key)
+		del self.__dict__[key]
+	
+	def save(self, **kwargs):
+		if kwargs:
+			map(lambda (x, y): self.__setitem__(x, y), [(k, v) for k, v in kwargs.iteritems() if k not in default_keys])
+		to_update = dict()
+		map(lambda (x, y): to_update.update({x: y}), [(k, v) for k, v in self.iteritems() if k not in default_keys])
+		try:
+			if self['_id']:
+				return self._set(self['_id'], json_data=to_update)
+		except KeyError:
+			saved = self.__class__.add(to_update)
+			if saved:
+				self.update(saved)
+				return self
+			else:
+				return False
+	
+	@classmethod
+	def create(cls, json_data=None, **kwargs):
+		if json_data:
+			created = cls.add(json_data=json_data)
+			if created:
+				return cls(created)
+			else:
+				return False
+		else:
+			created = cls.add(**kwargs)
+			if created:
+				return cls(created)
+			else:
+				return False
+	
+	@classmethod
+	def keys(cls):
+		return [key for key in cls.__dict__.keys() if not key.startswith('__')]
+	
+	
+	class Meta:
+		abstract = False
+		switchdb_model = True
