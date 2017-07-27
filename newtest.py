@@ -1,7 +1,7 @@
-from models import *
+from models.models import *
 
-a= Auction()
-keys = Auction.keys()
+a= Model()
+keys = Model.keys()
 for key in keys:
     val = getattr(a, key)
     print val
@@ -37,18 +37,18 @@ print a.pk
 print a.id
 a.name = 'yenison'
 print a
-print RDB.sort('-age').find(name='namenew')
-newObject = Auction.create(state='another name', startingPrice=13)
+print Model.sort('-age').find(name='namenew')
+newObject = Model.create(state='another name', startingPrice=13)
 print newObject
 print newObject.values()
 print newObject.itervalues()
 print newObject._id
-print RDB.find(name='namenew')
-_list = RDB.find()
+print Model.find(name='namenew')
+_list = Model.find()
 for a in _list:
     print a.name
-print RDB.count(-1).find()
-print RDB.findOne(name='name')
-Property.sort('-name').count(-1).page(1).find()
-RDB.populateAll().findOne()
-RDB.populate('user').findOne()
+print Model.count(-1).find()
+print Model.findOne(name='name')
+Model.sort('-name').count(-1).page(1).find()
+Model.populateAll().findOne()
+Model.populate('user').findOne()

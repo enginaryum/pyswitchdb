@@ -1,5 +1,4 @@
-from models import *
-
+from core.switch_client import *
 
 lists = SwitchClient.lists()
 
@@ -34,7 +33,7 @@ def create_list(model):
 
 handle_new_classes()
 
-print MyModel.lists()
+print Model.lists()
 
 # TODO: Check all models.py files in project dir
 # import os
